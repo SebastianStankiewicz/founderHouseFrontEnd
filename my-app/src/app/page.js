@@ -5,7 +5,7 @@ import GameHeader from "./Components/GameHeader";
 import MobileVoting from "./Components/MobileVoting";
 import React, { useEffect, useState } from "react";
 import { useIsMobile } from "./Hooks/useIsMobile";
-import { socket } from "../socket";
+import { socket } from "./socket";
 import ViewCountBubble from "./Components/ViewCountBubble";
 export default function Home() {
   const [activePlayer, setActivePlayer] = useState(null);
@@ -21,113 +21,123 @@ export default function Home() {
 
   const [currentQuesiton, setCurrentQuestion] = useState("Game question")
 
+  
+  // State to hold the audio buffer for playback
+  const [audioBuffer, setAudioBuffer] = useState(null);
+
   useEffect(() => {
-    const interval = setInterval(() => {
+    // Set up a simple active player rotation for demonstration
+    const playerRotationInterval = setInterval(() => {
       setActivePlayer((prev) => {
         if (prev === null) return 0;
         if (prev === 0) return 1;
         return null;
       });
     }, 3000);
-  
-    if (socket.connected) {
-      onConnect();
-    }
-  
-    function onConnect() {
-      setIsConnected(true);
-      setTransport(socket.io.engine.transport.name);
-      socket.io.engine.on("upgrade", (transport) => {
-        setTransport(transport.name);
-      });
-    }
-  
-    function onDisconnect() {
-      setIsConnected(false);
-      setTransport("N/A");
-    }
-  
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-  
-    socket.on("concurrentViews", (data) => {
-      setViewCount(data.totalViews);
 
-    });
-  
-    socket.on("persuasionBarVotes", (data) => {
-      setPersuasionBarVotes(data.totalVotes);
-    });
-  
-    socket.on("gameData", (data) => {
-      setCurrentQuestion(data.question);
-    });
-  
-    // ⬇️ Handle binary audio data
-    let audioBuffer = null;
-    socket.on("audio_bytes_on_connection", (data) => {
-      console.log("Received audio bytes");
-  
-      const blob = new Blob([data], { type: "audio/mp3" }); // Adjust type if it's not MP3
-      const url = URL.createObjectURL(blob);
-      audioBuffer = new Audio(url);
-      audioBuffer.load(); // optional, just in case
-    });
-  
-    // ⬇️ Handle start time
-    socket.on("start_at", (startEpoch) => {
-      const now = Date.now() / 1000;
-      const delay = Math.max(0, startEpoch - now) * 1000;
-  
-      console.log(`Scheduling audio to play in ${delay.toFixed(0)}ms`);
-  
-      setTimeout(() => {
-        if (audioBuffer) {
-          audioBuffer.play().catch((err) => {
-            console.error("Playback error:", err);
-          });
-        }
-      }, delay);
-    });
-  
+    // Only proceed if the socket is available from the context
+    if (socket) {
+      // Socket.IO event handlers
+      const handleConcurrentViews = (data) => {
+        console.log("Received concurrentViews:", data.totalViews);
+        setViewCount(data.totalViews);
+      };
+
+      const handlePersuasionBarVotes = (data) => {
+        setPersuasionBarVotes(data.totalVotes);
+      };
+
+      const handleGameData = (data) => {
+        setCurrentQuestion(data.question);
+        // Potentially set loadingGame to true if new round data means loading
+        // setIsLoadingGame(true);
+      };
+
+      const handleAudioBytes = (data) => {
+        console.log("Received audio bytes");
+        const blob = new Blob([data], { type: "audio/mp3" });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.load();
+        setAudioBuffer(audio);
+      };
+
+      const handleStartAt = (startEpoch) => {
+        const now = Date.now() / 1000;
+        const delay = Math.max(0, startEpoch - now) * 1000;
+
+        console.log(`Scheduling audio to play in ${delay.toFixed(0)}ms`);
+
+        setTimeout(() => {
+          if (audioBuffer) {
+            audioBuffer.play().catch((err) => {
+              console.error("Playback error:", err);
+            });
+          } else {
+            console.warn("Audio buffer not ready when start_at signal received.");
+          }
+        }, delay);
+      };
+
+      // Register event listeners
+      socket.on("concurrentViews", handleConcurrentViews);
+      socket.on("persuasionBarVotes", handlePersuasionBarVotes);
+      socket.on("gameData", handleGameData);
+      socket.on("audio_bytes_on_connection", handleAudioBytes);
+      socket.on("start_at", handleStartAt);
+    }
+
+    // Cleanup function for useEffect
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("audio_bytes_on_connection");
-      socket.off("start_at");
-      socket.off("persuasionBarVotes");
-      socket.off("gameData");
-      socket.off("concurrentViews");
-      clearInterval(interval);
-    };
-  }, []);
-  
+      clearInterval(playerRotationInterval); // Clear the active player interval
+      if (socket) {
+        socket.off("concurrentViews", handleConcurrentViews);
+        socket.off("persuasionBarVotes", handlePersuasionBarVotes);
+        socket.off("gameData", handleGameData);
+        socket.off("audio_bytes_on_connection", handleAudioBytes);
+        socket.off("start_at", handleStartAt);
+      }
 
-  //LEFT IS NEGATIVE 1
-  //RIGHT IS POSTIVE 1
-  function sendVote(side){
-    if (isConnected){
+      // Revoke the Blob URL if audioBuffer exists to prevent memory leaks
+      if (audioBuffer) {
+        URL.revokeObjectURL(audioBuffer.src);
+      }
+    };
+  }, [socket, audioBuffer]); // Depend on 'socket' to ensure listeners are registered once socket is available
+
+  // LEFT IS NEGATIVE 1
+  // RIGHT IS POSITIVE 1
+  const sendVote = (side) => {
+    // Check if socket is available before emitting
+    if (socket && socket.connected) {
+      // Use acknowledgment for critical actions like voting
       socket.emit('vote', {
         side: side,
         user: userName
-      })
-
-    } else{
-      console.log("Not connected to the websocket.")
-      return false
+      }, (response) => {
+        if (response.status === 'ok') {
+          console.log('Vote sent and acknowledged by server.');
+          // Optionally, show a success message to the user
+        } else {
+          console.error('Vote failed:', response.message);
+          // Optionally, show an error message to the user
+        }
+      });
+    } else {
+      console.log("Socket not connected. Vote not sent.");
+      // Provide user feedback that they are not connected
     }
-  }
+  };
 
-  function getGameData(){
-    alert("Clicked")
-    if(isConnected){
-      socket.emit('play_clip')
-      alert("asent play_clip");
-    } else{
-
+  const getGameData = () => {
+    // Check if socket is available before emitting
+    if (socket && socket.connected) {
+      socket.emit('play_clip');
+      console.log("Requested 'play_clip' from server.");
+    } else {
+      console.log("Socket not connected. Cannot request clip.");
     }
-  }
-
+  };
   // Mobile interface
   if (isMobile) {
     return <MobileVoting onVote={sendVote} onEmojiReact={null} />;
