@@ -11,12 +11,7 @@ export const useSocket = () => {
 const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
 
-  useEffect(() => {
-    const newSocket = io('http://127.0.0.1:5000'); // Replace with your server URL
-    setSocket(newSocket);
 
-    return () => newSocket.close();
-  }, []);
 
   return (
     <SocketContext.Provider value={socket}>
