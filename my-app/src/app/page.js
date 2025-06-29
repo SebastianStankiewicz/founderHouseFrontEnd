@@ -25,13 +25,17 @@ export default function Home() {
   const pollIntervalRef = useRef(null); // Ref to store the interval ID for game data
   const viewCountPollIntervalRef = useRef(null); // Ref for view count polling
   const persuasionPollIntervalRef = useRef(null); // Ref for persuasion bar polling
-  
+
   const speakerPollIntervalRef = useRef(null);
+
+  const [leftUserName, setLeftUserName] = useState("Player one");
+  const [rightUserName, setRightUserName] = useState("Player one");
 
   // --- API Base URL (IMPORTANT: Configure this!) ---
   // Replace with your actual backend API URL.
   // For development, it might be 'http://localhost:5000' or similar.
-  const API_BASE_URL = "https://0b810eef-b8e3-4b75-999f-1460007ce4ee-00-39fhpjg5zm1r4.kirk.replit.dev"; // <--- ⚠️ CHANGE THIS TO YOUR BACKEND URL
+  const API_BASE_URL =
+    "https://0b810eef-b8e3-4b75-999f-1460007ce4ee-00-39fhpjg5zm1r4.kirk.replit.dev"; // <--- ⚠️ CHANGE THIS TO YOUR BACKEND URL
 
   // --- Axios Request Functions ---
 
@@ -50,6 +54,8 @@ export default function Home() {
           setIsLoadingGame(false);
           console.log("Received game data:", response.data);
           setCurrentQuestion(response.data.question);
+          setLeftUserName(response.data.leftName);
+          setRightUserName(response.data.rightName);
           // Assuming activePlayer, round, maxRounds would also come from this data
           // setActivePlayer(response.data.activePlayer);
           // setRound(response.data.round);
@@ -101,27 +107,34 @@ export default function Home() {
       console.log("speaker sent:", response.data);
       if (response.data.success == true) {
         // Then call getAudioFileToPla
+
+        if (response.data.speaker == leftUserName) {
+          setActivePlayer(0);
+        }
+        if (response.data.speaker == rightUserName) {
+          setActivePlayer(1);
+        }
         await getAudioFileToPlay();
       }
     } catch (error) {
       console.error("Error sending emoji reaction:", error);
     }
   };
-  
+
   const getAudioFileToPlay = async () => {
     try {
       const response = await axios.post(`${API_BASE_URL}/getAudio`);
       const { audio_base64 } = response.data;
-  
+
       if (!audio_base64) {
         console.warn("No audio received");
         return;
       }
-  
+
       // Convert base64 to Blob
       const byteCharacters = atob(audio_base64);
       const byteArrays = [];
-  
+
       for (let i = 0; i < byteCharacters.length; i += 1024) {
         const slice = byteCharacters.slice(i, i + 1024);
         const byteNumbers = new Array(slice.length);
@@ -131,29 +144,28 @@ export default function Home() {
         const byteArray = new Uint8Array(byteNumbers);
         byteArrays.push(byteArray);
       }
-  
+
       const audioBlob = new Blob(byteArrays, { type: "audio/mpeg" });
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       audio.play();
-  
+
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
       };
-  
+
       console.log("Audio is playing...");
     } catch (error) {
       console.error("Error fetching/playing audio:", error);
     }
   };
 
-
   const pollSpeaker = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/getSpeaker`);
       if (response.data && typeof response.data === "object") {
-        if (response.data.success){
-          alert("WORKS")
+        if (response.data.success) {
+          console.log("Speaker found:", response.data);
         }
       }
     } catch (error) {
@@ -189,12 +201,12 @@ export default function Home() {
 
   useEffect(() => {
     const startPollingSpeaker = () => {
-      if (speakerPollIntervalRef.current){
+      if (speakerPollIntervalRef.current) {
         clearInterval(speakerPollIntervalRef.current);
       }
       getSpeaker();
       startPollingSpeaker.current = setInterval(getSpeaker, 3000);
-    }
+    };
 
     // Start polling for game data
     const startPollingGameData = () => {
@@ -239,11 +251,11 @@ export default function Home() {
       if (persuasionPollIntervalRef.current) {
         clearInterval(persuasionPollIntervalRef.current);
       }
-      if (speakerPollIntervalRef.current){
+      if (speakerPollIntervalRef.current) {
         clearInterval(speakerPollIntervalRef.current);
       }
     };
-  }, [userName]); // Depend on userName if it changes, though for a demo it might be static
+  }, [userName, leftUserName, rightUserName]); // Depend on userName if it changes, though for a demo it might be stati
 
   if (isMobile) {
     return (
@@ -287,12 +299,12 @@ export default function Home() {
 
           <div className="flex flex-1 flex-col lg:flex-row items-center justify-center gap-8 max-w-6xl mx-auto w-full px-4">
             <PlayerContainer
-              playerName="Player one"
+              playerName={leftUserName}
               teamColor="blue"
               isActive={activePlayer === 0} // Placeholder
             />
             <PlayerContainer
-              playerName="Player two"
+              playerName={rightUserName}
               teamColor="red"
               isActive={activePlayer === 1} // Placeholder
             />
